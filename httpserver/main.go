@@ -37,16 +37,28 @@ func getHello(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, "Hello, HTTP!\n")
 }
 
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Printf("Started %s %s\n", r.Method, r.URL.Path)
+
+		next.ServeHTTP(w, r)
+
+		fmt.Printf("Completed %s %s\n", r.Method, r.URL.Path)
+	})
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", getRoot)
 	mux.HandleFunc("/hello", getHello)
 
+	loggedMux := loggingMiddleware(mux)
+
 	ctx, cancelCtx := context.WithCancel(context.Background())
 
 	serverOne := &http.Server{
 		Addr:    ":3333",
-		Handler: mux,
+		Handler: loggedMux,
 		BaseContext: func(l net.Listener) context.Context {
 			ctx = context.WithValue(ctx, keyServerAddr, l.Addr().String())
 			return ctx
@@ -83,7 +95,7 @@ func main() {
 	}()
 	<-ctx.Done()
 
-	err := http.ListenAndServe(":3333", mux)
+	err := http.ListenAndServe(":3333", loggedMux)
 
 	if errors.Is(err, http.ErrServerClosed) {
 		fmt.Printf("Server closed\n")
@@ -91,4 +103,5 @@ func main() {
 		fmt.Printf("Error starting server: %s\n", err)
 		os.Exit(1)
 	}
+
 }
