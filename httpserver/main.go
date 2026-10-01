@@ -27,7 +27,11 @@ func (h *helloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func getRoot(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	fmt.Printf("%s got / resquest\n", ctx.Value(keyServerAddr))
+	hasFirst := r.URL.Query().Has("first")
+	first := r.URL.Query().Get("first")
+	hasSecond := r.URL.Query().Has("second")
+	second := r.URL.Query().Get("second")
+	fmt.Printf("%s got / request. first(%t) = %s, second(%t) = %s\n", ctx.Value(keyServerAddr), hasFirst, first, hasSecond, second)
 	io.WriteString(w, "This is my Website, and It is working!\n")
 }
 
@@ -47,6 +51,13 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func headerMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-App-Version", "1.0")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", getRoot)
@@ -54,9 +65,9 @@ func main() {
 
 	loggedMux := loggingMiddleware(mux)
 
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx := context.Background()
 
-	serverOne := &http.Server{
+	server := &http.Server{
 		Addr:    ":3333",
 		Handler: loggedMux,
 		BaseContext: func(l net.Listener) context.Context {
@@ -65,37 +76,14 @@ func main() {
 		},
 	}
 
-	serverTwo := &http.Server{
-		Addr:    ":4444",
-		Handler: mux,
-		BaseContext: func(l net.Listener) context.Context {
-			ctx = context.WithValue(ctx, keyServerAddr, l.Addr().String())
-			return ctx
-		},
+	err := server.ListenAndServe()
+	if errors.Is(err, http.ErrServerClosed) {
+		fmt.Printf("Server is closed\n")
+	} else if err != nil {
+		fmt.Printf("Error listening for server: %s \n", err)
 	}
 
-	go func() {
-		err := serverOne.ListenAndServe()
-		if errors.Is(err, http.ErrServerClosed) {
-			fmt.Printf("Server one is closed\n")
-		} else if err != nil {
-			fmt.Printf("Error listening for server one: %s \n", err)
-		}
-		cancelCtx()
-	}()
-
-	go func() {
-		err := serverTwo.ListenAndServe()
-		if errors.Is(err, http.ErrServerClosed) {
-			fmt.Printf("Server two is closed\n")
-		} else if err != nil {
-			fmt.Printf("Error listening for server two: %s \n", err)
-		}
-		cancelCtx()
-	}()
 	<-ctx.Done()
-
-	err := http.ListenAndServe(":3333", loggedMux)
 
 	if errors.Is(err, http.ErrServerClosed) {
 		fmt.Printf("Server closed\n")
