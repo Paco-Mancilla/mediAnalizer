@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +20,11 @@ type Handler interface {
 
 type helloHandler struct {
 	db *sql.DB
+}
+
+type Message struct {
+	Name string `json:"name"`
+	Body string `json:"body"`
 }
 
 func (h *helloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -70,10 +76,35 @@ func headerMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func handleJSON(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var msg Message
+	err := json.NewDecoder(r.Body).Decode(&msg)
+	if err != nil {
+		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	response := map[string]string{
+		"status": "success",
+		"name":   "Recived message fron " + msg.Name,
+		"body":   msg.Body,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	json.NewEncoder(w).Encode(response)
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", getRoot)
 	mux.HandleFunc("/hello", getHello)
+	mux.HandleFunc("/api/message", handleJSON)
 
 	loggedMux := loggingMiddleware(mux)
 
